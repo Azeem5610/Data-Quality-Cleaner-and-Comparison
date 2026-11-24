@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "phase6-workspace": {
+      "targetKind": "new-ui",
+      "projectId": "8bf274dd-e376-486b-8f1b-e69c99dc976a",
+      "activeDraftId": "dd607755-2d97-43cb-a1f2-18b3e69a84d0",
+      "designSystemPath": ".superdesign/design-system.md",
+      "contextFiles": [
+        ".superdesign/design-system.md",
+        "frontend/src/App.tsx",
+        "frontend/src/api/client.ts",
+        "frontend/src/types/index.ts",
+        "frontend/index.html"
+      ],
+      "fingerprints": {
+        ".superdesign/design-system.md": "C5244A1369DD5D78B92967C7955976E29E35BB7FF2ABECC3D575D919E6080081",
+        "frontend/src/App.tsx": "25C2939D94E91B90D159ED2BF967E1BA1A5C1E25E4E117F57A4418797B3A69AF",
+        "frontend/src/api/client.ts": "185EF2F478E92D4083FF39397DEA452F54C871C978641548609B7C93CC061D27",
+        "frontend/src/types/index.ts": "A0C396CC1981D54EE552F897C9D75B84167DB7F498563393D04F15F7A2C9E7EE",
+        "frontend/index.html": "C012E6A9DE88737544830406C3B828C6162C0F88C30AB0DCEE7A163BCCD11A55"
+      },
+      "drafts": {
+        "dd607755-2d97-43cb-a1f2-18b3e69a84d0": {
+          "title": "Data Quality Cleaner Workspace",
+          "visualDirection": "Warm neutral canvas with forest-green actions and category-color analysis panels",
+          "currentVersion": 1
+        }
+      },
+      "updatedAt": "2026-11-25T01:08:38+05:00"
+    }
+  }
+}

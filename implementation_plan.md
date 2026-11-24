@@ -1,42 +1,48 @@
-# Implementation Plan: Data Quality Cleaner and Comparison Demo
+# Revised Plan: React + Vite + TypeScript Frontend
+
+Switching the frontend means that the Python code can no longer be rendered by Streamlit. It will instead become a FastAPI backend, and the React application will communicate with it. Phases 1–5 retain the same logic while exposing it through API endpoints. Phase 6 becomes the React build.
 
 ## Project Structure
 
 ```text
 data-quality-demo/
-├── app.py                  # Streamlit UI (entry point)
-├── requirements.txt
-├── .env.example
+├── backend/
+│   ├── main.py                 # FastAPI app entry
+│   ├── requirements.txt
+│   ├── .env.example
+│   ├── src/
+│   │   ├── config.py
+│   │   ├── ingest/             # pdf_loader.py, web_loader.py
+│   │   ├── cleaning/           # pdf_cleaner.py, web_cleaner.py, junk_report.py
+│   │   ├── rag/                # chunker.py, store.py, answer.py
+│   │   ├── routes/             # process.py, ask.py, samples.py
+│   │   └── schemas.py          # Pydantic models (the API contract)
+│   ├── samples/                # messy demo PDF + saved web page
+│   └── data/                   # chroma_db, uploads (git-ignored)
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.ts          # dev proxy to the backend
+│   ├── tsconfig.json
+│   ├── .env.example
+│   └── src/
+│       ├── main.tsx, App.tsx
+│       ├── api/client.ts       # typed API calls
+│       ├── types/index.ts      # mirrors backend schemas
+│       └── components/         # SourceInput, JunkScoreCard,
+│                               # DiffView, AskPanel, AnswerCompare
 ├── .gitignore
-├── README.md
-├── src/
-│   ├── config.py           # loads .env, constants
-│   ├── ingest/
-│   │   ├── pdf_loader.py   # raw PDF extraction
-│   │   └── web_loader.py   # raw website fetching
-│   ├── cleaning/
-│   │   ├── pdf_cleaner.py
-│   │   ├── web_cleaner.py
-│   │   └── junk_report.py  # junk score + category breakdown
-│   ├── rag/
-│   │   ├── chunker.py
-│   │   ├── store.py        # ChromaDB (two collections: raw, clean)
-│   │   └── answer.py       # retrieval + LLM answer
-│   └── ui/
-│       └── diff_view.py    # side-by-side highlighting
-├── samples/                # your messy demo PDF and saved web page
-└── data/                   # chroma_db, uploads (git-ignored)
+└── README.md
 ```
-
----
 
 ## Phase 0: Project Setup
 
-### Files to Create
+### `backend/requirements.txt`
 
-**`requirements.txt`**
 ```text
-streamlit
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
 pymupdf
 trafilatura
 beautifulsoup4
@@ -48,10 +54,12 @@ openai
 python-dotenv
 rapidfuzz
 ```
-*(Note: Pin exact versions later with `pip freeze` once everything works.)*
 
-**`.env.example`**
-```env
+`python-multipart` is needed for PDF uploads. Uvicorn runs the server.
+
+### `backend/.env.example`
+
+```dotenv
 OPENROUTER_API_KEY=your_key_here
 OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct
 EMBEDDING_MODEL=all-MiniLM-L6-v2
@@ -59,108 +67,132 @@ CHROMA_DIR=data/chroma_db
 CHUNK_SIZE=800
 CHUNK_OVERLAP=100
 TOP_K=4
+ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-**`.gitignore`**
+### `frontend/.env.example`
+
+```dotenv
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+### `.gitignore`
+
 ```gitignore
+# env
 .env
+backend/.env
+frontend/.env
+
+# python
 venv/
 .venv/
 __pycache__/
 *.pyc
-data/
-.streamlit/secrets.toml
+
+# node
+node_modules/
+dist/
+
+# data
+backend/data/
+
+# editors / OS
 .DS_Store
 .idea/
 .vscode/
 ```
 
-**Additional Tasks:**
-- Create the folder structure above with empty `__init__.py` files and a short `README.md`.
+Create the frontend with the Vite React + TypeScript template, then add the required dependencies, such as a lightweight data-fetching library and a styling approach like Tailwind or plain CSS modules. Keep the dependencies and structure light because the UI has only a few screens.
 
-> **Done when:** Folders exist, `pip install -r requirements.txt` succeeds, and `config.py` loads the `.env` values.
+**Done when:**
 
----
+- Backend dependencies install successfully.
+- `uvicorn main:app --reload` serves a health-check endpoint.
+- The Vite development server starts successfully.
+- The frontend can call the health endpoint.
+- CORS and the development proxy work correctly.
 
-## Phase 1: Raw Ingestion
+## Phase 1: Raw Ingestion (Backend)
 
-Extract text exactly as a naive pipeline would, with no cleaning.
+Implement ingestion behind `POST /api/process`, which accepts a PDF upload or a URL. Return the raw text while preserving its page or section structure.
 
-- **`pdf_loader.py`:** Extract text per page with PyMuPDF.
-- **`web_loader.py`:** Fetch the URL and return the full text of the page, including menus and footers.
-- Keep the original per-page or per-section structure, because the diff view needs it later.
+## Phase 2: Cleaning Engine (Backend)
 
-> **Done when:** You can load your sample PDF and URL and see the raw junk in the output.
+Keep the cleaning logic unchanged. Return the cleaned text and a list of removed segments:
 
----
+```json
+{
+  "text": "...",
+  "category": "...",
+  "location": "..."
+}
+```
 
-## Phase 2: Cleaning Engine
+The `location` field is important for the React diff view because it identifies where each removed segment should be highlighted.
 
-The core of your pitch, so spend the most time here. Every removal must be tagged with a category.
+## Phase 3: Junk Report (Backend)
 
-- **PDF cleaner:** Detect lines repeating across many pages (headers and footers), remove page numbers, re-join broken line wraps, and collapse extra whitespace and hyphenation breaks.
-- **Web cleaner:** Use `trafilatura` for main-content extraction, then strip leftover navigation, cookie text, and boilerplate phrases with your own rules; remove duplicate lines and blocks.
-- **Output for each:** Cleaned text plus a list of removed segments: `{"text": ..., "category": ...}`.
+Generate and return the following:
 
-> **Done when:** Both sample sources clean visibly well, with removals logged.
+- Junk score
+- Category breakdown
+- Summary line
 
----
+Include all of these in the `POST /api/process` response.
 
-## Phase 3: Junk Report
+## Phase 4: Chunking and Vector Store (Backend)
 
-- **Junk Score Formula:**
-  $$\text{Junk Score} = \frac{\text{Removed Characters}}{\text{Original Characters}}$$
-- **Category Breakdown:** Headers/footers, navigation, page numbers, duplicates, boilerplate, and whitespace.
-- **Summary Output:** Plain-language summary line (e.g., *"34% of this document was junk, mostly repeated headers and navigation"*).
+Create two Chroma collections per processed source:
 
-> **Done when:** A function returns a score plus breakdown you can drop straight into the UI.
+- Raw collection
+- Clean collection
 
----
+Key both collections with the `source_id` returned to the frontend.
 
-## Phase 4: Chunking and Vector Store
+## Phase 5: Dual RAG Answering (Backend)
 
-- **Chunker:** Sentence-aware splitting (semantic chunking can come later).
-- **Vector Store:** Two ChromaDB collections built from the same source: `raw` and `clean`.
-- **Metadata:** Store `source name`, `file type`, and `chunk index`.
+`POST /api/ask` accepts a source ID and question:
 
-> **Done when:** You can index one source into both collections and retrieve top chunks from each.
+```json
+{
+  "source_id": "...",
+  "question": "..."
+}
+```
 
----
+It returns both answers and the retrieved chunks for each side.
 
-## Phase 5: Dual RAG Answering
+### API Contract
 
-- Run one question through retrieval and the LLM twice—once on `raw` and once on `clean`—with identical settings.
-- Return each answer plus the retrieved chunks used.
-- **Prompt Rule (for both):** Answer *only* from the provided context.
+Freeze the following contract before building the UI:
 
-> **Done when:** For your chosen test question, `raw` gives a worse answer and `clean` gives a correct one. *(If the contrast is weak, change your sample document or question, not the logic.)*
+| Method | Endpoint | Response |
+| --- | --- | --- |
+| `POST` | `/api/process` | `{ source_id, raw_text, clean_text, removed_segments[], junk_score, breakdown{}, summary }` |
+| `POST` | `/api/ask` | `{ raw: { answer, chunks[] }, clean: { answer, chunks[] } }` |
+| `GET` | `/api/samples` | Prepared demo source names |
+| `POST` | `/api/samples/{name}` | Loads a prepared demo source |
+| `GET` | `/api/health` | Health status |
 
----
+Mirror this contract with Pydantic schemas in the backend and TypeScript types in the frontend to keep both sides in sync.
 
-## Phase 6: Streamlit UI
+## Phase 6: React Frontend
 
-Build a single-screen interface containing:
-1. Upload / URL input.
-2. Junk Score card with the category breakdown.
-3. Side-by-side raw vs. cleaned view with removed text highlighted.
-4. Question box with two answer panels and source chunks underneath.
+Build the frontend in this order so it remains demonstrable throughout development:
 
-> **Done when:** The full demo flow runs from one screen without touching the terminal.
+1. **API client and types** — Add typed wrappers for all endpoints.
+2. **SourceInput** — Add a PDF drop zone, URL field, and **Load sample** buttons.
+3. **JunkScoreCard** — Display the large percentage, category bars, and summary line.
+4. **DiffView** — Show raw text on the left and cleaned text on the right. Highlight removed segments and color-code them by category.
+5. **AskPanel and AnswerCompare** — Add one question box and two answer cards for raw versus clean results, with expandable source chunks.
+6. **App flow and states** — Add loading, error, and empty states.
 
----
+**Done when:** the complete demo runs in the browser from a single page.
 
 ## Phase 7: Demo Polish and Rehearsal
 
-- [ ] Cache results so the demo doesn't wait on re-processing.
-- [ ] Add a "Load Sample" button for your prepared PDF and website.
-- [ ] Handle errors gracefully (bad URL, empty PDF, API failure).
-- [ ] Rehearse the pitch once end-to-end with the 5-step flow.
-- [ ] Record a screen capture as a backup in case the internet fails during the meeting.
-
----
-
-## Optional Extras (If Time Remains)
-
-- Word (`.docx`) and Markdown (`.md`) cleaners.
-- Metadata and duplicate detection across multiple files.
-- Export cleaned data as JSON or Markdown.
+- Cache processed samples so the demo does not wait.
+- Add loading skeletons and friendly error messages.
+- Record a backup screen recording in case the internet is unavailable.
+- Complete one full rehearsal of the pitch flow.
